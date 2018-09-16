@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 extern crate rand;
+extern crate rustty;
 
 extern crate negamax;
 
@@ -186,36 +187,148 @@ impl std::fmt::Debug for State {
     }
 }
 
+use rustty::ui::{Alignable, HorizontalAlign, VerticalAlign, Widget};
+use rustty::{CellAccessor, Event, HasSize, Terminal};
+
 fn main() {
-    let mut table = Table::new();
+    let mut term = Terminal::new().unwrap();
+    let mut canvas = Widget::new(term.size().0 - 2, term.size().1 - 2);
+    canvas.align(&term, HorizontalAlign::Left, VerticalAlign::Top, 1);
+
+    let pos = [
+        (-3, -3),
+        (0, -3),
+        (3, -3),
+        (3, 0),
+        (3, 3),
+        (0, 3),
+        (-3, 3),
+        (-3, 0),
+        (-2, -2),
+        (0, -2),
+        (2, -2),
+        (2, 0),
+        (2, 2),
+        (0, 2),
+        (-2, 2),
+        (-2, 0),
+        (-1, -1),
+        (0, -1),
+        (1, -1),
+        (1, 0),
+        (1, 1),
+        (0, 1),
+        (-1, 1),
+        (-1, 0),
+    ];
+
+    let mut table: Table<State> = Table::new();
     let mut state = State::new();
+    let mut moves = state.possibilities(1);
+    let mut index: isize = -1;
 
-    let mut player = 1;
-    let mut depth = 7;
-    loop {
-        let mut new_state;
-        loop {
-            let before = time::Instant::now();
-
-            new_state = thread_rng()
-                .choose(&state.bot_play(player, depth, &mut table))
-                .unwrap()
-                .clone();
-
-            if time::Instant::now() - before > time::Duration::from_secs(1) {
-                break;
-            } else {
-                depth += 1;
+    'main: loop {
+        while let Some(Event::Key(ch)) = term.get_event(time::Duration::new(0, 0)).unwrap() {
+            match ch {
+                'q' => break 'main,
+                'C' => {
+                    if index < moves.len() as isize - 1 {
+                        index += 1;
+                    }
+                }
+                'D' => {
+                    if index > -1 {
+                        index -= 1;
+                    }
+                }
+                '\r' => {
+                    if index >= 0 {
+                        state = moves[index as usize].clone();
+                        if state.win(1) {
+                            break 'main;
+                        }
+                        state = thread_rng()
+                            .choose(&state.bot_play(-1, 7, &mut table))
+                            .unwrap()
+                            .clone();
+                        if state.win(-1) {
+                            break 'main;
+                        }
+                        moves = state.possibilities(1);
+                        index = -1;
+                    }
+                }
+                _ => {}
             }
         }
-        state = new_state;
-        player = -player;
+        // Grab the size of the canvas
+        let (cols, rows) = canvas.size();
 
-        println!("{} table={} depth={}", state, table.len(), depth);
-        if state.win(-player) {
-            break;
+        // Main render loop, draws the circle to canvas
+        for i in 0..cols * rows {
+            let y = i / cols;
+            let x = i % cols;
+            let mut cell = canvas.get_mut(x, y).unwrap();
+            cell.set_ch(' ');
         }
+
+        let draw_state = if index >= 0 {
+            moves[index as usize].clone()
+        } else {
+            state.clone()
+        };
+
+        let (a, b) = (cols as isize / 2, rows as isize / 2);
+        if index == -1 {
+            canvas
+                .get_mut(a as usize, b as usize)
+                .unwrap()
+                .set_ch('~');
+        }
+        for i in 0..24 {
+            let x = a + 2 * pos[i].0;
+            let y = b + pos[i].1;
+            let mut cell = canvas.get_mut(x as usize, y as usize).unwrap();
+            let ch = match draw_state.board[i] {
+                0 => '.',
+                1 => '◎',
+                -1 => '◉',
+                _ => ' ',
+            };
+            cell.set_ch(ch);
+        }
+
+        // draw the canvas, dialog window and swap buffers
+        canvas.draw_into(&mut term);
+        term.swap_buffers().unwrap();
     }
+
+    // let mut player = 1;
+    // let mut depth = 7;
+    // loop {
+    //     let mut new_state;
+    //     loop {
+    //         let before = time::Instant::now();
+
+    //         new_state = thread_rng()
+    //             .choose(&state.bot_play(player, depth, &mut table))
+    //             .unwrap()
+    //             .clone();
+
+    //         if time::Instant::now() - before > time::Duration::from_secs(1) {
+    //             break;
+    //         } else {
+    //             depth += 1;
+    //         }
+    //     }
+    //     state = new_state;
+    //     player = -player;
+
+    //     println!("{} table={} depth={}", state, table.len(), depth);
+    //     if state.win(-player) {
+    //         break;
+    //     }
+    // }
 }
 
 /* Players : +1 and -1
